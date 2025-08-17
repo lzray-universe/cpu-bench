@@ -1,4 +1,4 @@
-name: Deploy OpenBench Web (Onefile) to GitHub Pages
+name: Deploy OpenBench Web (Onefile Fallback) to GitHub Pages
 on:
   push:
     branches: [ "main" ]
@@ -19,12 +19,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Configure Pages (enable site)
         uses: actions/configure-pages@v5
         with:
           enablement: true
-
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
