@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenBench Web · 单文件版</title>
+  <style>
+    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#475569; --card:#ffffff; --primary:#2563eb; --primary-2:#1d4ed8; --danger:#dc2626; --danger-2:#b91c1c; --ring:#e2e8f0; }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px}
+    .title{font-size:28px;font-weight:800;margin:8px 0 4px}
+    .sub{color:var(--muted);margin-bottom:16px}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
+    @media (min-width:900px){ .grid{grid-template-columns:2fr 1fr} }
+    .card{background:var(--card);border:1px solid var(--ring);border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,0.03)}
+    .pad{padding:16px}
+    .btn{border:0;border-radius:12px;padding:10px 14px;cursor:pointer;font-weight:600}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}
+    .btn-primary{background:var(--primary);color:#fff}
+    .btn-primary:hover{background:var(--primary-2)}
+    .btn-danger{background:var(--danger);color:#fff}
+    .btn-danger:hover{background:var(--danger-2)}
+    .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    .grow{flex:1}
+    .muted{color:var(--muted)}
+    .progress{height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden}
+    .progress .bar{height:100%;width:0;background:var(--primary);transition:width .15s linear}
+    table{width:100%;border-collapse:separate;border-spacing:0;overflow:hidden;border:1px solid var(--ring);border-radius:12px}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--ring);text-align:left}
+    thead th{background:#f1f5f9;font-weight:700}
+    tr:nth-child(even) td{background:#f8fafc}
+    .kvs{list-style:none;padding:0;margin:0}
+    .kvs li{display:flex;justify-content:space-between;border-bottom:1px dashed #e5e7eb;padding:6px 0}
+    .kvs li span:last-child{color:#111827}
+    .mt{margin-top:12px}
+    .foot{font-size:12px;color:var(--muted);margin-top:20px}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:700;font-size:12px;margin-right:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">OpenBench Web</div>
+    <div class="sub">单文件 · 浏览器端 CPU 跑分（GitHub Pages）</div>
+
+    <div class="grid">
+      <div class="card pad">
+        <div class="row">
+          <button id="btn-quick" class="btn btn-primary">快速测试（≈30s）</button>
+          <button id="btn-extended" class="btn">扩展测试（≈60s）</button>
+          <span class="grow"></span>
+          <button id="btn-cancel" class="btn btn-danger" style="display:none;">取消</button>
+        </div>
+
+        <div id="status" class="mt">就绪。</div>
+
+        <div class="mt progress"><div id="progress" class="bar"></div></div>
+        <div class="muted" style="font-size:12px;margin-top:6px"> <span id="eta">ETA —</span> </div>
+
+        <div class="mt">
+          <div class="tag">结果</div>
+          <div id="results" class="mt" style="overflow-x:auto"></div>
+          <div class="row mt">
+            <button id="btn-copy" class="btn">复制 JSON</button>
+            <button id="btn-dl" class="btn">下载 JSON</button>
+            <button id="btn-csv" class="btn">下载 CSV</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card pad">
+        <div style="font-weight:700;margin-bottom:6px">环境与优化</div>
+        <ul class="kvs">
+          <li><span>架构</span><span id="arch">检测中…</span></li>
+          <li><span>逻辑核心</span><span id="cores">—</span></li>
+          <li><span>WASM</span><span id="wasm">—</span></li>
+          <li><span>SIMD</span><span id="simd">—</span></li>
+          <li><span>交叉隔离(SAB)</span><span id="xoi">—</span></li>
+        </ul>
+        <div style="font-weight:700;margin:12px 0 6px">优化参数（自动）</div>
+        <ul class="kvs">
+          <li><span>单核展开（float/int）</span><span id="opt-unroll">—</span></li>
+          <li><span>内存步长（stride）</span><span id="opt-stride">—</span></li>
+          <li><span>线程数（多核）</span><span id="opt-threads">—</span></li>
+        </ul>
+        <div class="foot mt">* 使用 Web Workers 并行（Blob URL），无需跨域隔离。</div>
+      </div>
+    </div>
+
+    <div class="foot">MIT © 2025 · 纯前端评测，仅供参考。不同浏览器/省电策略会影响结果。</div>
+  </div>
+
+  <script>
+  // ===== Utilities =====
+  const $ = (id)=>document.getElementById(id);
+  const statusEl = $("status"), progressEl = $("progress"), etaEl = $("eta");
+  const envArch = $("arch"), envCores=$("cores"), envWasm=$("wasm"), envSimd=$("simd"), envXoi=$("xoi");
+  const optUnroll=$("opt-unroll"), optStride=$("opt-stride"), optThreads=$("opt-threads");
+  const btnQuick=$("btn-quick"), btnExt=$("btn-extended"), btnCancel=$("btn-cancel");
+  const btnCopy=$("btn-copy"), btnDL=$("btn-dl"), btnCSV=$("btn-csv");
+  const resultsEl=$("results");
+
+  function prettyBytes(n){ if(!isFinite(n)) return "—"; const u=["B","KB","MB","GB"]; let i=0; while(n>=1024 && i<u.length-1){n/=1024;i++;} return n.toFixed(1)+" "+u[i]; }
+  function gmean(arr){ const v=arr.filter(x=>x>0); if(!v.length) return 0; const s=v.reduce((a,b)=>a+Math.log(b),0)/v.length; return Math.exp(s); }
+  function formatNum(n){ if(!isFinite(n)) return "—"; if(n>=1e9) return (n/1e9).toFixed(2)+"G"; if(n>=1e6) return (n/1e6).toFixed(2)+"M"; if(n>=1e3) return (n/1e3).toFixed(2)+"K"; return n.toFixed(0); }
+  function msToHMS(ms){ const s=Math.max(0,Math.round(ms/1000)); const m=Math.floor(s/60); const r=s%60; return (m>0? m+"m":"")+r+"s"; }
+  function resultsToCSV(res){
+    const lines=['name,mode,ops_per_s,throughput_per_s(bytes),ms,checksum'];
+    const add=(name,mode,r,tp)=>{ lines.push([name,mode, r.ops? (r.ops/(r.ms/1000)):"", tp||"", r.ms, (r.checksum>>>0)].join(",")); };
+    add("float","single",res.single.float);
+    add("int","single",res.single.int);
+    add("mem","single",res.single.mem, res.single.mem.bytes/(res.single.mem.ms/1000));
+    add("float","multi",res.multi.float);
+    add("int","multi",res.multi.int);
+    add("mem","multi",res.multi.mem, res.multi.mem.bytes/(res.multi.mem.ms/1000));
+    return lines.join("\n");
+  }
+
+  // ===== Env Detect (async) =====
+  async function detectEnv(){
+    const cores = navigator.hardwareConcurrency || 1;
+    envCores.textContent = String(cores);
+    const wasmOK = typeof WebAssembly !== "undefined";
+    envWasm.textContent = wasmOK ? "支持":"不支持";
+    // SIMD probe (best-effort)
+    (async()=>{
+      try{
+        if(!wasmOK || !WebAssembly.validate){ envSimd.textContent="未知/不支持"; return; }
+        const base64 = "AGFzbQEAAAABBgFgAX8BfwMCAQAHBwEDfn8BAX8DAQIDfwF/AwEABgYBBm1lbW9yeQACBwEDc2ltZAABCgEHCQEDdjEyOAA=";
+        const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+        const ok = WebAssembly.validate(bytes);
+        envSimd.textContent = ok ? "可能支持":"未知/不支持";
+      }catch{ envSimd.textContent="未知/不支持"; }
+    })();
+    envXoi.textContent = self.crossOriginIsolated ? "是":"否";
+
+    let arch="未知";
+    try{
+      if(navigator.userAgentData && navigator.userAgentData.getHighEntropyValues){
+        const data = await navigator.userAgentData.getHighEntropyValues(["architecture","bitness","model","platform","platformVersion"]);
+        arch = [data.architecture, data.bitness].filter(Boolean).join(" / ") || "未知";
+      }else{
+        const ua = navigator.userAgent.toLowerCase();
+        if(/arm|aarch64|apple m/.test(ua)) arch="ARM/Apple Silicon(推测)";
+        else if(/x86_64|win64|x86|amd64|intel/.test(ua)) arch="x86_64/Intel/AMD(推测)";
+        else arch="未知";
+      }
+    }catch{}
+    envArch.textContent = arch;
+
+    const isARM = /arm|apple silicon|aarch64/i.test(arch);
+    const unroll = isARM ? 8 : 4;
+    const stride = isARM ? 2 : 1;
+    const threads = Math.min(cores||1, 32);
+    optUnroll.textContent = String(unroll);
+    optStride.textContent = String(stride);
+    optThreads.textContent = String(threads);
+    return { arch, isARM, unroll, stride, threads, cores };
+  }
+
+  // ===== Worker code as blob (no imports) =====
+  function makeWorker(){
+    const code = `
+    let memBuf=null, fa=null;
+    function ensureArrayMiB(mib){
+      const bytes=Math.max(8,Math.floor(mib))*1024*1024;
+      const len=(bytes/8)|0;
+      if(!memBuf || fa.length!==len){
+        memBuf=new ArrayBuffer(len*8);
+        fa=new Float64Array(memBuf);
+        for(let i=0;i<fa.length;i+=1024) fa[i]=i*1.000001;
+      }
+      return fa;
+    }
+    function runFloat(opts){
+      const u=Math.max(2, opts.unroll|0);
+      const block=20000;
+      let a=1.1,b=1.2,c=1.3,d=1.4;
+      function step(){
+        for(let i=0;i<u;i++){
+          a=a*1.000000119 + b;
+          b=b*0.999999941 + c;
+          c=c*1.000000059 + d;
+          d=d*0.999999970 + a;
+          a=a + c*1.000000001;
+          b=b + d*0.999999999;
+          c=c + a*1.000000003;
+          d=d + b*0.999999997;
+        }
+      }
+      let ops=0;
+      for(let i=0;i<block;i++){ step(); ops+=u*16; }
+      const checksum = (a*13 ^ b*17 ^ c*19 ^ d*23) | 0;
+      return { iters:block, ops, checksum };
+    }
+    function runInt(opts){
+      const block=500000;
+      let x=0x1234567 ^ (opts.unroll||4);
+      let y=0x9e3779b9|0;
+      let sum=0|0;
+      for(let i=0;i<block;i++){
+        x ^= (x<<13);
+        x ^= (x>>>17);
+        x ^= (x<<5);
+        x = (x + y)|0;
+        x ^= ((x<<7) | (x>>>25));
+        y = (y + 0x6d2b79f5)|0;
+        sum ^= x;
+      }
+      const ops=block*12;
+      const checksum=(sum ^ x ^ y)|0;
+      return { iters:block, ops, checksum };
+    }
+    function runMem(opts){
+      const stride=Math.max(1, opts.stride|0);
+      const arr=ensureArrayMiB(opts.arrMB || 48);
+      const n=arr.length;
+      let sum=0.0;
+      let bytes=0;
+      for(let i=0;i<n;i+=stride){
+        sum += arr[i];
+        arr[i] = sum*1.0000001;
+        bytes += 16;
+      }
+      const checksum=(sum * 2654435761)|0;
+      return { iters:(n/stride)|0, ops:0, bytes, checksum };
+    }
+    self.onmessage = async (e)=>{
+      const { cmd, test, targetMs, opts } = e.data;
+      if(cmd!=="run") return;
+      const t0 = performance.now();
+      let iters=0, ops=0, bytes=0, checksum=0;
+      const stepMs = Math.min(250, targetMs/10);
+      let nextTick = performance.now() + stepMs;
+      function tick(){
+        const el=performance.now()-t0;
+        self.postMessage({ type:"progress", doneRatio: Math.min(1, el/targetMs) });
+      }
+      const runBlock = (fn)=>{
+        while(performance.now()-t0 < targetMs){
+          const r=fn();
+          iters+=r.iters; ops+=r.ops; bytes+=r.bytes||0; checksum ^= r.checksum>>>0;
+          if(performance.now() >= nextTick){ tick(); nextTick += stepMs; }
+        }
+      };
+      if(test==="float") runBlock(()=>runFloat(opts));
+      else if(test==="int") runBlock(()=>runInt(opts));
+      else if(test==="mem") runBlock(()=>runMem(opts));
+      const ms = performance.now()-t0;
+      self.postMessage({ type:"done", iters, ops, bytes, checksum, ms });
+    };
+    `;
+    const blob = new Blob([code], {type:"text/javascript"});
+    const url = URL.createObjectURL(blob);
+    return new Worker(url);
+  }
+
+  // ===== Runner =====
+  let abortFlag=false;
+  function setButtons(running){
+    btnQuick.disabled=running;
+    btnExt.disabled=running;
+    btnCancel.style.display = running ? "inline-block":"none";
+  }
+  function setProgress(p, eta){ progressEl.style.width = Math.max(0,Math.min(100,p)) + "%"; if(eta) etaEl.textContent="ETA "+eta; }
+
+  async function runTestInParallel(testName, threads, targetMs, opts, onProgress){
+    const workers=[]; let done=0;
+    let accum={ iters:0, ops:0, bytes:0, ms:0, checksum:0 };
+    for(let i=0;i<threads;i++){
+      const w = makeWorker();
+      workers.push(w);
+      w.onmessage = (e)=>{
+        if(e.data.type==="progress"){ onProgress && onProgress(e.data.doneRatio); }
+        else if(e.data.type==="done"){
+          done++;
+          const r=e.data;
+          accum.iters+=r.iters; accum.ops+=r.ops; accum.bytes+=r.bytes; accum.ms=Math.max(accum.ms, r.ms); accum.checksum ^= r.checksum;
+          if(done===threads){ workers.forEach(x=>x.terminate()); onProgress && onProgress(1); }
+        }
+      };
+      w.postMessage({ cmd:"run", test:testName, targetMs, opts });
+    }
+    await new Promise(res=>{
+      const t=setInterval(()=>{ if(done===threads){ clearInterval(t); res(); } }, 50);
+    });
+    return accum;
+  }
+
+  function renderTable(res){
+    const rows=[["类别","模式","OPS/s","吞吐(内存)","时间","校验"]];
+    const push=(label,mode,r)=>{
+      rows.push([label,mode, r.ops?formatNum(r.ops/(r.ms/1000)):"—", r.bytes? prettyBytes(r.bytes/(r.ms/1000))+"/s":"—", msToHMS(r.ms), "0x"+(r.checksum>>>0).toString(16)]);
+    };
+    push("浮点 (MAD)","单核",res.single.float);
+    push("整数 (xorshift)","单核",res.single.int);
+    push("内存 (带步长)","单核",res.single.mem);
+    push("浮点 (MAD)","多核",res.multi.float);
+    push("整数 (xorshift)","多核",res.multi.int);
+    push("内存 (带步长)","多核",res.multi.mem);
+    const scoreText = "综合分："+Math.round(res.score.total)+" · 单核："+Math.round(res.score.single)+" · 多核："+Math.round(res.score.multi);
+    const html = \`
+      <div class="muted" style="margin-bottom:6px">\${scoreText}</div>
+      <table>
+        <thead><tr>\${rows[0].map(h=>'<th>'+h+'</th>').join('')}</tr></thead>
+        <tbody>
+          \${rows.slice(1).map(r=>'<tr>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')}
+        </tbody>
+      </table>\`;
+    resultsEl.innerHTML=html;
+  }
+
+  function computeScore(res){
+    const ref={ float_ops_s:5e7, int_ops_s:1e8, mem_b_s:6e8, multi_boost:3.5 };
+    const sc={
+      float:(res.single.float.ops/(res.single.float.ms/1000))/ref.float_ops_s,
+      int:  (res.single.int.ops  /(res.single.int.ms/1000))  /ref.int_ops_s,
+      mem:  (res.single.mem.bytes/(res.single.mem.ms/1000))  /ref.mem_b_s,
+    };
+    const scScore = gmean([sc.float, sc.int, sc.mem])*1000;
+    const mc={
+      float:(res.multi.float.ops/(res.multi.float.ms/1000))/(ref.float_ops_s*ref.multi_boost),
+      int:  (res.multi.int.ops  /(res.multi.int.ms/1000))  /(ref.int_ops_s*ref.multi_boost),
+      mem:  (res.multi.mem.bytes/(res.multi.mem.ms/1000))  /(ref.mem_b_s*ref.multi_boost),
+    };
+    const mcScore = gmean([mc.float, mc.int, mc.mem])*1000;
+    return { single:scScore, multi:mcScore, total:gmean([scScore, mcScore]) };
+  }
+
+  async function run(mode){
+    setButtons(true); abortFlag=false; resultsEl.innerHTML=""; setProgress(0,"");
+    const env = await detectEnv();
+    const opts = { arch:env.arch, isARM:env.isARM, unroll:env.unroll, stride:env.stride, arrMB: env.isARM?32:48 };
+    const threads = env.threads || 1;
+    const plan = { single:3000, multi:6000 };
+    if(mode==="extended"){ plan.single=5000; plan.multi=10000; }
+    const totalSteps=6; let step=0; const startTs=performance.now();
+
+    statusEl.textContent="单核测试：浮点…";
+    const singleFloat=await runTestInParallel("float", 1, plan.single, opts, r=>{ setProgress(((step+r)/totalSteps)*100, ""); });
+    if(abortFlag) return; step++;
+
+    statusEl.textContent="单核测试：整数…";
+    const singleInt=await runTestInParallel("int", 1, plan.single, opts, r=>{ setProgress(((step+r)/totalSteps)*100, ""); });
+    if(abortFlag) return; step++;
+
+    statusEl.textContent="单核测试：内存…";
+    const singleMem=await runTestInParallel("mem", 1, plan.single, opts, r=>{ setProgress(((step+r)/totalSteps)*100, ""); });
+    if(abortFlag) return; step++;
+
+    statusEl.textContent="多核测试："+threads+" 线程：浮点…";
+    const multiFloat=await runTestInParallel("float", threads, plan.multi, opts, r=>{
+      setProgress(((step+r)/totalSteps)*100, "");
+      const elapsed=performance.now()-startTs;
+      const approxLeft = (totalSteps - (step + r)) * (plan.single + plan.multi)/2;
+      etaEl.textContent="ETA "+msToHMS(approxLeft);
+    });
+    if(abortFlag) return; step++;
+
+    statusEl.textContent="多核测试："+threads+" 线程：整数…";
+    const multiInt=await runTestInParallel("int", threads, plan.multi, opts, r=>{ setProgress(((step+r)/totalSteps)*100, ""); });
+    if(abortFlag) return; step++;
+
+    statusEl.textContent="多核测试："+threads+" 线程：内存…";
+    const multiMem=await runTestInParallel("mem", threads, plan.multi, opts, r=>{ setProgress(((step+r)/totalSteps)*100, ""); });
+    if(abortFlag) return; step++;
+
+    const res = { env:{ arch:env.arch, cores:env.cores, userAgent:navigator.userAgent }, opts,
+      single:{ float:singleFloat, int:singleInt, mem:singleMem },
+      multi:{  float:multiFloat,  int:multiInt,  mem:multiMem } };
+    res.score = computeScore(res);
+
+    statusEl.textContent="完成。"; setProgress(100,"—"); renderTable(res);
+    window.__OPENBENCH_RESULT__ = res;
+  }
+
+  // ===== Events =====
+  btnQuick.addEventListener("click", ()=>run("quick"));
+  btnExt.addEventListener("click", ()=>run("extended"));
+  btnCancel.addEventListener("click", ()=>{ abortFlag=true; setButtons(false); statusEl.textContent="已取消。"; });
+  btnCopy.addEventListener("click", async ()=>{
+    const res=window.__OPENBENCH_RESULT__; if(!res) return alert("没有结果可复制");
+    await navigator.clipboard.writeText(JSON.stringify(res, null, 2)); alert("已复制到剪贴板");
+  });
+  btnDL.addEventListener("click", ()=>{
+    const res=window.__OPENBENCH_RESULT__; if(!res) return alert("没有结果可下载");
+    const blob=new Blob([JSON.stringify(res,null,2)], {type:"application/json"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="openbench-result.json"; a.click();
+  });
+  btnCSV.addEventListener("click", ()=>{
+    const res=window.__OPENBENCH_RESULT__; if(!res) return alert("没有结果可下载");
+    const blob=new Blob([resultsToCSV(res)], {type:"text/csv"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="openbench-result.csv"; a.click();
+  });
+
+  statusEl.textContent = "就绪。点击“快速测试（≈30s）”。";
+  </script>
+</body>
+</html>
