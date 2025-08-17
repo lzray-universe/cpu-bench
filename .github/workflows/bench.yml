@@ -1,0 +1,56 @@
+name: CPU Bench
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - '**.txt'
+      - '**.png'
+      - '**.jpg'
+      - '**.gif'
+
+jobs:
+  bench:
+    name: Run Bench (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Run benchmark (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          BINARY="./build/cpu_bench"
+          if [ "${{ matrix.os }}" = "macos-14" ]; then
+            BINARY="./build/cpu_bench"
+          fi
+          $BINARY --time 30 --json results-${{ runner.os }}.json --md summary-${{ runner.os }}.md
+          cat summary-${{ runner.os }}.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run benchmark (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = "build\\Release\\cpu_bench.exe"
+          & $bin --time 30 --json results-Windows.json --md summary-Windows.md
+          Get-Content summary-Windows.md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.os }}
+          path: |
+            results-*.json
+            summary-*.md
