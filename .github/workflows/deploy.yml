@@ -1,4 +1,4 @@
-name: Deploy OpenBench Web (Onefile Fallback) to GitHub Pages
+name: Deploy OpenBench Web (No Inline) to GitHub Pages
 on:
   push:
     branches: [ "main" ]
